@@ -8,11 +8,8 @@ from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from cleanlab import Datalab
 from cleanlab.regression.rank import get_label_quality_scores
-
 from sklearn.linear_model import LinearRegression
 from xgboost import XGBClassifier
-
-
 
 # -------------------
 # Base Evaluator Class
@@ -36,14 +33,16 @@ class BaseEvaluator:
         self.y_pred = self.model.predict(X_test)
         self.y_test = y_test
         self.X_test = X_test
-        
+
     def evaluate(self):
         raise NotImplementedError("Must implement in subclass.")
 
-    def log_results(self, path="training_log.csv"):
+    def log_results(self, path="training_log.csv", cleaned_dataset_size=None, num_issues=None):
         result = pd.DataFrame([{ 
             'dataset': self.name,
             'dataset_size': len(self.dataset),
+            'cleaned_dataset_size': cleaned_dataset_size,
+            'num_issues': num_issues,
             'task': self.task,
             'model': self.model.__class__.__name__,
             'metric': self.metric,
@@ -52,7 +51,6 @@ class BaseEvaluator:
             'train_time': self.train_time
         }])
         result.to_csv(path, mode='a', header=not pd.io.common.file_exists(path), index=False)
-
 
 # -------------------
 # Classification Evaluator
@@ -63,7 +61,6 @@ class ClassificationEvaluator(BaseEvaluator):
         scores = cross_val_score(self.model, self.X, self.y, cv=self.cv_folds, scoring='accuracy')
         self.cv_mean, self.cv_std = scores.mean(), scores.std()
         print(f"[Classification] {self.name} - {self.model.__class__.__name__}: Accuracy={self.metric:.4f} | CV={self.cv_mean:.4f}±{self.cv_std:.4f}")
-
 
 # -------------------
 # Regression Evaluator
@@ -76,7 +73,6 @@ class RegressionEvaluator(BaseEvaluator):
         self.cv_mean = np.sqrt(-scores.mean())
         self.cv_std = np.sqrt(scores.std())
         print(f"[Regression] {self.name} - {self.model.__class__.__name__}: RMSE={self.metric:.4f} | CV={self.cv_mean:.4f}±{self.cv_std:.4f}")
-
 
 # -------------------
 # Issue Handler
@@ -92,6 +88,7 @@ class IssueHandler:
         self.features = None
         self.knn_graph = None
         self.pred_probs = None
+        self.issue_summary = None
 
     def report_issues(self):
         X = self.dataset.drop('target', axis=1)
@@ -118,7 +115,7 @@ class IssueHandler:
             lab.find_issues(pred_probs=self.pred_probs, features=self.features, knn_graph=self.knn_graph)
             self.issues = lab.get_issues()
             self.issue_summary = lab.get_issue_summary()
-            print(lab.get_issue_summary())
+            print(self.issue_summary)
 
         elif self.task == 'regression':
             model = LinearRegression()
@@ -129,7 +126,7 @@ class IssueHandler:
                 'label_quality': scores,
                 'is_label_issue': scores < self.quality_threshold
             })
-        
+
         return self.dataset.copy(), self.issues.copy()
 
     def clean_selected_issues(self, method='remove', label_issues=True, outliers=True, near_duplicates=True, non_iid=True):
@@ -161,4 +158,3 @@ class IssueHandler:
 
         else:
             raise ValueError("Invalid method or unsupported combination.")
-
