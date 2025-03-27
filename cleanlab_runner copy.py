@@ -3,14 +3,12 @@ import numpy as np
 import time
 from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict, StratifiedKFold, KFold
 from sklearn.metrics import accuracy_score, mean_squared_error
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
 from cleanlab import Datalab
 from cleanlab.regression.rank import get_label_quality_scores
 
 from sklearn.linear_model import LinearRegression
 from xgboost import XGBClassifier
+import pmlb
 
 
 
@@ -82,83 +80,49 @@ class RegressionEvaluator(BaseEvaluator):
 # Issue Handler
 # -------------------
 class IssueHandler:
-    def __init__(self, dataset, task, n_splits=3, quality_threshold=0.2, knn_k=10):
+    def __init__(self, dataset, task, method='remove', n_splits=3, quality_threshold=0.2):
         self.dataset = dataset
         self.task = task
+        self.method = method
         self.n_splits = n_splits
         self.quality_threshold = quality_threshold
-        self.knn_k = knn_k
-        self.issues = None
-        self.features = None
-        self.knn_graph = None
-        self.pred_probs = None
 
-    def report_issues(self):
+    def clean(self):
         X = self.dataset.drop('target', axis=1)
         y = self.dataset['target']
-
-        # Preprocess features
-        X_proc = pd.get_dummies(X)
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_proc)
-        pca = PCA(n_components=min(20, X_scaled.shape[1]))
-        self.features = pca.fit_transform(X_scaled)
-
-        # Compute knn_graph
-        nn = NearestNeighbors(n_neighbors=self.knn_k + 1)
-        nn.fit(self.features)
-        self.knn_graph = nn.kneighbors(return_distance=False)[:, 1:]
 
         if self.task == 'classification':
             model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
             cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=42)
-            self.pred_probs = cross_val_predict(model, X_proc, y, cv=cv, method='predict_proba')
-
+            probs = cross_val_predict(model, X, y, cv=cv, method='predict_proba')
             lab = Datalab(self.dataset, label_name='target')
-            lab.find_issues(pred_probs=self.pred_probs, features=self.features, knn_graph=self.knn_graph)
-            self.issues = lab.get_issues()
-            self.issue_summary = lab.get_issue_summary()
-            print(lab.get_issue_summary())
+            lab.find_issues(pred_probs=probs)
+            issues = lab.get_issues()
+            mask = (issues.get('is_outlier_issue', pd.Series([False]*len(y))) |
+                    issues.get('is_label_issue', pd.Series([False]*len(y))))
+            if self.method == 'remove':
+                return self.dataset[~mask].copy(), issues
+            elif self.method == 'replace':
+                most_likely = np.argmax(probs, axis=1)
+                fixed = self.dataset.copy()
+                fixed.loc[issues['is_label_issue'], 'target'] = most_likely[issues['is_label_issue']]
+                return fixed, issues
 
         elif self.task == 'regression':
             model = LinearRegression()
             cv = KFold(n_splits=self.n_splits, shuffle=True, random_state=42)
-            pred_y = cross_val_predict(model, X_proc, y, cv=cv, method='predict')
+            pred_y = cross_val_predict(model, X, y, cv=cv, method='predict')
             scores = get_label_quality_scores(y, pred_y, method='residual')
-            self.issues = pd.DataFrame({
+            issues = pd.DataFrame({
                 'label_quality': scores,
                 'is_label_issue': scores < self.quality_threshold
             })
-        
-        return self.dataset.copy(), self.issues.copy()
-
-    def clean_selected_issues(self, method='remove', label_issues=True, outliers=True, near_duplicates=True, non_iid=True):
-        if self.issues is None:
-            raise RuntimeError("Must run report_issues() before cleaning.")
-
-        clean_mask = pd.Series([False]*len(self.dataset))
-        for issue_type, use_flag in [
-            ('is_label_issue', label_issues),
-            ('is_outlier_issue', outliers),
-            ('is_near_duplicate_issue', near_duplicates),
-            ('is_non_iid_issue', non_iid)
-        ]:
-            if use_flag and issue_type in self.issues.columns:
-                clean_mask |= self.issues[issue_type].fillna(False)
-
-        if method == 'remove':
-            return self.dataset[~clean_mask].copy()
-
-        elif method == 'replace' and self.task == 'classification':
-            most_likely = np.argmax(self.pred_probs, axis=1)
-            fixed = self.dataset.copy()
-            to_fix = self.issues['is_label_issue'] & label_issues
-            fixed.loc[to_fix, 'target'] = most_likely[to_fix]
-            return fixed
-
-        elif method == 'replace' and self.task == 'regression':
-            raise NotImplementedError("Replace method not implemented for regression label correction.")
+            if self.method == 'remove':
+                return self.dataset[~issues['is_label_issue']].copy(), issues
+            elif self.method == 'replace':
+                fixed = self.dataset.copy()
+                fixed.loc[issues['is_label_issue'], 'target'] = pred_y[issues['is_label_issue']]
+                return fixed, issues
 
         else:
-            raise ValueError("Invalid method or unsupported combination.")
-
+            raise ValueError("Task must be 'classification' or 'regression'")
