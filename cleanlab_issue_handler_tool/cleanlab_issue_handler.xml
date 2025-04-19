@@ -1,0 +1,52 @@
+<tool id="cleanlab_issue_handler" name="Cleanlab Issue Handler" version="1.0.0">
+  <description>Detect and optionally clean data issues using Cleanlab</description>
+
+  <container type="docker">joudydev/cleanlab-datalab:latest</container>
+
+  <command detect_errors="exit_code"><![CDATA[
+python $__tool_directory__/cleanlab_issue_handler.py \
+  --csv '$input_file' \
+  --task '$task' \
+  --method '$method' \
+  #if $summary_only:
+  --summary
+  #end if
+  ]]></command>
+
+  <inputs>
+    <param name="input_file" type="data" format="csv" label="Input CSV file (must contain 'target' column)"/>
+    <param name="task" type="select" label="Task type">
+      <option value="classification">Classification</option>
+      <option value="regression">Regression</option>
+    </param>
+    <param name="method" type="select" label="Cleaning method">
+      <option value="remove">Remove problematic rows</option>
+      <option value="replace">Replace problematic labels (only for classification)</option>
+    </param>
+    <param name="summary_only" type="boolean" label="Only report issues (do not clean data)" checked="true"/>
+  </inputs>
+
+  <outputs>
+    <data name="report_file" from_work_dir="summary.txt" format="txt" label="Issue Report"/>
+    <data name="output_file" from_work_dir="cleaned_data.csv" format="csv" label="Cleaned Dataset">
+      <filter>summary_only == "false"</filter>
+    </data>
+  </outputs>
+
+  <help><![CDATA[
+This tool uses the Cleanlab library (with Datalab) to detect and optionally clean data issues.
+
+**Input Requirements:**
+- A CSV file with a `target` column for classification or regression.
+
+**Options:**
+- Choose task type.
+- Select whether to only report or clean data.
+- If cleaning, choose to remove or replace problematic entries.
+
+**Outputs:**
+- `summary.txt`: issue report
+- `cleaned_data.csv`: cleaned dataset (if cleaning enabled)
+  ]]></help>
+</tool>
+

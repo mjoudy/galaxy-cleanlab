@@ -5,7 +5,7 @@ import pmlb
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_predict
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
-from cleanlab import Datalab
+from temp.cleanlab import Datalab
 
 class CleanlabDataProcessor:
     def __init__(self, dataset_name, model=None):

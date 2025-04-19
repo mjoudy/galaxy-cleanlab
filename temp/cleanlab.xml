@@ -1,0 +1,64 @@
+<tool id="cleanlab_issue_handler" name="Cleanlab Issue Handler" version="1.0.0" python_template_version="3.8">
+    <description>Detect and optionally clean data issues using Cleanlab</description>
+
+    <requirements>
+        <requirement type="package">python</requirement>
+        <requirement type="package">pandas</requirement>
+        <requirement type="package">numpy</requirement>
+        <requirement type="package">scikit-learn</requirement>
+        <requirement type="package">xgboost</requirement>
+        <requirement type="package">cleanlab</requirement>
+    </requirements>
+
+    <command detect_errors="exit_code">
+        <![CDATA[
+        python $__tool_directory__/cleanlab_tool.py
+        --csv '$input_file'
+        --task '$task'
+        --method '$method'
+        #if str(summary_only) == 'true':
+            --summary
+        #else:
+            --output '$output_file'
+        #end if
+        > '$report_file'
+        ]]>
+    </command>
+
+    <inputs>
+        <param name="input_file" type="data" format="csv" label="Input CSV file (must contain 'target' column)" />
+        <param name="task" type="select" label="Task type">
+            <option value="classification">Classification</option>
+            <option value="regression">Regression</option>
+        </param>
+        <param name="method" type="select" label="Cleaning method" help="Choose how to handle detected issues">
+            <option value="remove">Remove problematic rows</option>
+            <option value="replace">Replace problematic labels (only for classification)</option>
+        </param>
+        <param name="summary_only" type="boolean" label="Only report issues (do not clean data)" default="true" />
+    </inputs>
+
+    <outputs>
+        <data name="report_file" format="txt" label="Issue Report" />
+        <data name="output_file" format="csv" label="Cleaned Dataset" >
+            <filter>summary_only == "false"</filter>
+        </data>
+    </outputs>
+
+    <help><![CDATA[
+This tool uses the Cleanlab library to detect and optionally fix label issues, outliers, and near-duplicate samples in your dataset.
+
+**Input Requirements:**
+- A CSV file with a `target` column specifying the label/target for classification or regression.
+
+**Options:**
+- Choose the type of ML task (classification or regression).
+- Choose whether to just get a report or also clean the data.
+- If cleaning, choose whether to remove problematic rows or attempt to replace labels (only for classification).
+
+**Outputs:**
+- A report summarizing data issues.
+- A cleaned CSV file (if cleaning is enabled).
+
+    ]]></help>
+</tool>

@@ -1,0 +1,3 @@
+        issue_type     score  num_issues
+0            label  0.685315          93
+1  class_imbalance  0.297203           0

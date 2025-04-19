@@ -1,78 +1,17 @@
+import argparse
+import pandas as pd
+#import cleanlab as cl
 import pandas as pd
 import numpy as np
 import time
 from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict, StratifiedKFold, KFold
 from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
-from cleanlab import Datalab
+from cleanlab_runner import Datalab
 from cleanlab.regression.rank import get_label_quality_scores
 from sklearn.linear_model import LinearRegression
 from xgboost import XGBClassifier
-
-# -------------------
-# Base Evaluator Class
-# -------------------
-class BaseEvaluator:
-    def __init__(self, name, dataset, model, task, cv_folds=3):
-        self.name = name
-        self.dataset = dataset
-        self.model = model
-        self.task = task
-        self.cv_folds = cv_folds
-        self.X = dataset.drop('target', axis=1)
-        self.y = dataset['target']
-
-    def train(self):
-        X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=0.2, random_state=42)
-        start = time.time()
-        self.model.fit(X_train, y_train)
-        end = time.time()
-        self.train_time = end - start
-        self.y_pred = self.model.predict(X_test)
-        self.y_test = y_test
-        self.X_test = X_test
-
-    def evaluate(self):
-        raise NotImplementedError("Must implement in subclass.")
-
-    def log_results(self, path="training_log.csv", cleaned_dataset_size=None, num_issues=None):
-        result = pd.DataFrame([{ 
-            'dataset': self.name,
-            'dataset_size': len(self.dataset),
-            'cleaned_dataset_size': cleaned_dataset_size,
-            'num_issues': num_issues,
-            'task': self.task,
-            'model': self.model.__class__.__name__,
-            'metric': self.metric,
-            'cv_mean': self.cv_mean,
-            'cv_std': self.cv_std,
-            'train_time': self.train_time
-        }])
-        result.to_csv(path, mode='a', header=not pd.io.common.file_exists(path), index=False)
-
-# -------------------
-# Classification Evaluator
-# -------------------
-class ClassificationEvaluator(BaseEvaluator):
-    def evaluate(self):
-        self.metric = accuracy_score(self.y_test, self.y_pred)
-        scores = cross_val_score(self.model, self.X, self.y, cv=self.cv_folds, scoring='accuracy')
-        self.cv_mean, self.cv_std = scores.mean(), scores.std()
-        print(f"[Classification] {self.name} - {self.model.__class__.__name__}: Accuracy={self.metric:.4f} | CV={self.cv_mean:.4f}±{self.cv_std:.4f}")
-
-# -------------------
-# Regression Evaluator
-# -------------------
-class RegressionEvaluator(BaseEvaluator):
-    def evaluate(self):
-        mse = mean_squared_error(self.y_test, self.y_pred)
-        self.metric = np.sqrt(mse)
-        scores = cross_val_score(self.model, self.X, self.y, cv=self.cv_folds, scoring='neg_mean_squared_error')
-        self.cv_mean = np.sqrt(-scores.mean())
-        self.cv_std = np.sqrt(scores.std())
-        print(f"[Regression] {self.name} - {self.model.__class__.__name__}: RMSE={self.metric:.4f} | CV={self.cv_mean:.4f}±{self.cv_std:.4f}")
 
 # -------------------
 # Issue Handler
@@ -94,22 +33,15 @@ class IssueHandler:
         X = self.dataset.drop('target', axis=1)
         y = self.dataset['target']
 
-        # Preprocess features
-        X_proc = pd.get_dummies(X)
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_proc)
-        pca = PCA(n_components=min(20, X_scaled.shape[1]))
-        self.features = pca.fit_transform(X_scaled)
-
         # Compute knn_graph
         nn = NearestNeighbors(n_neighbors=self.knn_k + 1)
-        nn.fit(self.features)
+        nn.fit(X)
         self.knn_graph = nn.kneighbors(return_distance=False)[:, 1:]
 
         if self.task == 'classification':
             model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
             cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=42)
-            self.pred_probs = cross_val_predict(model, X_proc, y, cv=cv, method='predict_proba')
+            self.pred_probs = cross_val_predict(model, X, y, cv=cv, method='predict_proba')
 
             lab = Datalab(self.dataset, label_name='target')
             lab.find_issues(pred_probs=self.pred_probs, features=self.features, knn_graph=self.knn_graph)
@@ -120,7 +52,7 @@ class IssueHandler:
         elif self.task == 'regression':
             model = LinearRegression()
             cv = KFold(n_splits=self.n_splits, shuffle=True, random_state=42)
-            pred_y = cross_val_predict(model, X_proc, y, cv=cv, method='predict')
+            pred_y = cross_val_predict(model, X, y, cv=cv, method='predict')
             scores = get_label_quality_scores(y, pred_y, method='residual')
             self.issues = pd.DataFrame({
                 'label_quality': scores,
@@ -158,3 +90,37 @@ class IssueHandler:
 
         else:
             raise ValueError("Invalid method or unsupported combination.")
+
+def main():
+    parser = argparse.ArgumentParser(description="Cleanlab Issue Handler CLI")
+    parser.add_argument("--csv", required=True, help="Path to dataset CSV (must include a 'target' column)")
+    parser.add_argument("--task", required=True, choices=["classification", "regression"], help="Type of ML task")
+    parser.add_argument("--method", default="remove", choices=["remove", "replace"], help="Cleaning method")
+    parser.add_argument("--output", required=False, help="Path to save cleaned CSV")
+    parser.add_argument("--summary", action="store_true", help="Print issue summary only, no cleaning")
+    args = parser.parse_args()
+
+    # Load dataset
+    df = pd.read_csv(args.csv)
+    if 'target' not in df.columns:
+        raise ValueError("Dataset must contain a 'target' column.")
+
+    # Run IssueHandler
+    handler = IssueHandler(dataset=df, task=args.task)
+    _, issues = handler.report_issues()
+
+    if args.summary:
+        print(handler.issue_summary)
+        return
+
+    cleaned_df = handler.clean_selected_issues(method=args.method)
+
+    # Save or print result
+    if args.output:
+        cleaned_df.to_csv(args.output, index=False)
+        print(f"Cleaned dataset saved to: {args.output}")
+    else:
+        print(cleaned_df.head())
+
+if __name__ == "__main__":
+    main()
