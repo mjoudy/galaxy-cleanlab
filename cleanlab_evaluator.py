@@ -3,10 +3,8 @@ import numpy as np
 import time
 from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict, StratifiedKFold, KFold
 from sklearn.metrics import accuracy_score, mean_squared_error
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
-from temp.cleanlab import Datalab
+from cleanlab import Datalab
 from cleanlab.regression.rank import get_label_quality_scores
 from sklearn.linear_model import LinearRegression
 from xgboost import XGBClassifier
@@ -78,12 +76,49 @@ class RegressionEvaluator(BaseEvaluator):
 # -------------------
 # Issue Handler
 # -------------------
+
+# ================================================================
+# ISSUE HANDLING OVERVIEW
+# ================================================================
+# Current capabilities:
+#
+# 1. Issue Types Supported (via Cleanlab/Datalab):
+#    - is_label_issue           → Incorrect or noisy label
+#    - is_outlier_issue         → Statistical outliers
+#    - is_near_duplicate_issue  → Redundant or nearly identical samples
+#    - is_non_iid_issue         → Violates i.i.d. assumptions
+#
+# 2. Task Support:
+#    - Classification:
+#        ✔ All 4 issue types supported via Cleanlab's Datalab
+#        ✔ Clean method options: 'remove' and 'replace'
+#        ✔ Replacement is done using model's top predicted class (argmax)
+#
+#    - Regression:
+#        ✔ Only label issues supported (detected via residual-based label quality score)
+#        ✔ Clean method: 'remove' only
+#        ✘ 'replace' method not yet implemented for regression
+#
+# 3. Cleaning Method Options (via clean_selected_issues method):
+#    - method='remove':
+#        → Removes all selected issue types from dataset
+#    - method='replace':
+#        → Replaces label issues with model predictions (classification only)
+#
+# Ultimate goal:
+#    → Extend support for all issue types in both tasks (classification & regression)
+#    → Implement label replacement for regression (e.g., smoothing or predictive correction)
+#
+# Dependencies: Cleanlab (Datalab), scikit-learn, XGBoost (for classification baseline)
+# ================================================================
+
+
 class IssueHandler:
     def __init__(self, dataset, task, n_splits=3, quality_threshold=0.2, knn_k=10):
         self.dataset = dataset
         self.task = task
         self.n_splits = n_splits
-        self.quality_threshold = quality_threshold
+        self.quality_threshold = quality_threshold  # threshold for label quality in regression task. labels with quality < threshold are considered issues.
         self.knn_k = knn_k
         self.issues = None
         self.features = None
@@ -95,10 +130,14 @@ class IssueHandler:
         X = self.dataset.drop('target', axis=1)
         y = self.dataset['target']
 
-        # Compute knn_graph
+        # Apparently, cleanlab can have better performance if kkn_graph and features are pre-computed 
+        # and passed to it. The longest distance is knn_k +1 and we can study its effect on the performance 
+        # of the model in the future.
         nn = NearestNeighbors(n_neighbors=self.knn_k + 1)
         nn.fit(X)
         self.knn_graph = nn.kneighbors(return_distance=False)[:, 1:]
+
+
 
         if self.task == 'classification':
             model = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
@@ -107,7 +146,7 @@ class IssueHandler:
 
             lab = Datalab(self.dataset, label_name='target')
             lab.find_issues(pred_probs=self.pred_probs, features=self.features, knn_graph=self.knn_graph)
-            self.issues = lab.get_issues()
+            self.issues = lab.get_issues()  # it gives a table, each column is an issue type for  rows of datapoints.
             self.issue_summary = lab.get_issue_summary()
             print(self.issue_summary)
 
@@ -127,6 +166,12 @@ class IssueHandler:
         if self.issues is None:
             raise RuntimeError("Must run report_issues() before cleaning.")
 
+
+        # Create a boolean mask marking rows with any kind of selected issue (label, outlier, near-duplicate, non-iid).
+        # We loop through each issue type and its corresponding flag (e.g., label_issues=True means we want to include label issues).
+        # If the flag is enabled and the issue column exists in self.issues, we update the clean_mask using OR logic.
+        # `fillna(False)` ensures that missing values (NaN) are treated as no issue (False).
+        # The result: clean_mask is True for rows with at least one selected issue. 
         clean_mask = pd.Series([False]*len(self.dataset))
         for issue_type, use_flag in [
             ('is_label_issue', label_issues),
