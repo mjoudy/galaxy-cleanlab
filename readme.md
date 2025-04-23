@@ -1,4 +1,4 @@
-# 🧼 Cleanlab Issue Handler for Tabular Datasets
+# 🧼 Cleanlab Issue Handler for Tabular Datasets - Integrated for Galaxy 
 
 This repository provides a tool that detects and optionally removes or corrects label and data quality issues in tabular datasets using the [Cleanlab](https://github.com/cleanlab/cleanlab) package. It is designed to integrate with the [Galaxy Project](https://galaxyproject.org/), allowing users to improve their data quality **before** running any downstream machine learning or statistical analysis.
 
