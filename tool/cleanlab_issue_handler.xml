@@ -15,7 +15,6 @@
     #end if
     ]]></command>
 
-
     <inputs>
         <param name="input_file" type="data" format="csv" label="Input CSV file (must contain 'target' column)"/>
         <param name="task" type="select" label="Task type">
@@ -36,10 +35,23 @@
         </data>
     </outputs>
 
-    <help>
-        <![CDATA[
-        This tool uses Cleanlab to detect and optionally clean issues in labeled data.
-        ]]>
-    </help>
+    <help><![CDATA[
+This tool uses Cleanlab to detect and optionally clean issues in labeled tabular data.
+
+**Inputs:**
+- A CSV file with a column named 'target'
+- Specify whether the task is classification or regression
+- Choose whether to remove or replace problematic labels
+
+**Outputs:**
+- A report (`summary.txt`) describing detected issues
+- A cleaned dataset (if cleaning is requested)
+
+Make sure to mount your tool directory when running Planemo:
+
+    planemo serve --docker --volume $(pwd):/app
+
+This allows live-editing the Python script without rebuilding the Docker image.
+    ]]></help>
 </tool>
 

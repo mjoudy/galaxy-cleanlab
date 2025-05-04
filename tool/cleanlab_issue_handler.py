@@ -22,12 +22,19 @@ class IssueHandler:
         self.issues = None
         self.features = None
         self.knn_graph = None
+        self.features = self.dataset.drop('target', axis=1).columns.tolist()
         self.pred_probs = None
         self.issue_summary = None
 
     def report_issues(self):
         X = self.dataset.drop('target', axis=1)
         y = self.dataset['target']
+
+        # ---------------------------
+        # ✅ Fix: Ensure compatibility with Galaxy
+        X = X.to_numpy() if hasattr(X, 'to_numpy') else np.asarray(X)
+        y = y.to_numpy() if hasattr(y, 'to_numpy') else np.asarray(y)
+        # ---------------------------
 
         # Compute knn_graph
         nn = NearestNeighbors(n_neighbors=self.knn_k + 1)
@@ -40,7 +47,9 @@ class IssueHandler:
             self.pred_probs = cross_val_predict(model, X, y, cv=cv, method='predict_proba')
 
             lab = Datalab(self.dataset, label_name='target')
-            lab.find_issues(pred_probs=self.pred_probs, features=self.features, knn_graph=self.knn_graph)
+            # this raises errors related to features and knn. for next version it's gonna be fixed.
+            # lab.find_issues(pred_probs=self.pred_probs, features=self.features, knn_graph=self.knn_graph)
+            lab.find_issues(pred_probs=self.pred_probs)  # this simple version gives 5 issue types.
             self.issues = lab.get_issues()
             self.issue_summary = lab.get_issue_summary()
             print(self.issue_summary)
@@ -91,11 +100,19 @@ class IssueHandler:
 # Main CLI Entry
 # -------------------
 def main():
+    print("this is a test to see if the python script is working from the dir, not docker.")
     parser = argparse.ArgumentParser(description="Cleanlab Issue Handler CLI")
     parser.add_argument("--csv", required=True, help="Path to dataset CSV (must include a 'target' column)")
     parser.add_argument("--task", required=True, choices=["classification", "regression"], help="Type of ML task")
     parser.add_argument("--method", default="remove", choices=["remove", "replace"], help="Cleaning method")
     parser.add_argument("--summary", action="store_true", help="Print and save issue summary only, no cleaning")
+
+    # Optional flags to exclude specific issue types
+    parser.add_argument("--no-label-issues", action="store_true", help="Exclude label issues from cleaning")
+    parser.add_argument("--no-outliers", action="store_true", help="Exclude outlier issues from cleaning")
+    parser.add_argument("--no-near-duplicates", action="store_true", help="Exclude near-duplicate issues from cleaning")
+    parser.add_argument("--no-non-iid", action="store_true", help="Exclude non-i.i.d. issues from cleaning")
+
     args = parser.parse_args()
 
     # Load dataset
@@ -120,8 +137,16 @@ def main():
     if args.summary:
         return
 
+    # Clean selected issues
+    cleaned_df = handler.clean_selected_issues(
+        method=args.method,
+        label_issues=not args.no_label_issues,
+        outliers=not args.no_outliers,
+        near_duplicates=not args.no_near_duplicates,
+        non_iid=not args.no_non_iid
+    )
+
     # Save cleaned dataset
-    cleaned_df = handler.clean_selected_issues(method=args.method)
     cleaned_filename = "cleaned_data.csv"
     cleaned_df.to_csv(cleaned_filename, index=False)
     print(f"Cleaned dataset saved to: {cleaned_filename}")
@@ -131,3 +156,4 @@ def main():
 # -------------------
 if __name__ == "__main__":
     main()
+
