@@ -100,7 +100,6 @@ class IssueHandler:
 # Main CLI Entry
 # -------------------
 def main():
-    print("this is a test to see if the python script is working from the dir, not docker.")
     parser = argparse.ArgumentParser(description="Cleanlab Issue Handler CLI")
     parser.add_argument("--csv", required=True, help="Path to dataset CSV (must include a 'target' column)")
     parser.add_argument("--task", required=True, choices=["classification", "regression"], help="Type of ML task")

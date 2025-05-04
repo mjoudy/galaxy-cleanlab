@@ -1,19 +1,35 @@
-<tool id="cleanlab_issue_handler" name="Cleanlab Issue Handler" version="1.0.0">
+<tool id="cleanlab_issue_handler" name="Cleanlab Issue Handler" version="1.1.0">
     <description>Detect and optionally clean data issues using Cleanlab</description>
 
+    <!-- Use Docker for environment, but call local script -->
     <requirements>
         <container type="docker">galaxy_cleanlab/issue_handler:first_docker</container>
     </requirements>
 
-    <command detect_errors="exit_code"><![CDATA[
-    python /app/cleanlab_issue_handler.py
+    <!-- Call Python script from the tool directory -->
+    <command detect_errors="exit_code">
+    <![CDATA[
+        python '${__tool_directory__}/cleanlab_issue_handler.py'
         --csv '$input_file'
         --task '$task'
         --method '$method'
-    #if $summary_only:
-        --summary
-    #end if
-    ]]></command>
+        #if $summary_only:
+            --summary
+        #end if
+        #if not $label_issues:
+            --no-label-issues
+        #end if
+        #if not $outliers:
+            --no-outliers
+        #end if
+        #if not $near_duplicates:
+            --no-near-duplicates
+        #end if
+        #if not $non_iid:
+            --no-non-iid
+        #end if
+    ]]>
+    </command>
 
     <inputs>
         <param name="input_file" type="data" format="csv" label="Input CSV file (must contain 'target' column)"/>
@@ -26,6 +42,10 @@
             <option value="replace">Replace problematic labels (classification only)</option>
         </param>
         <param name="summary_only" type="boolean" label="Only report issues (do not clean data)" checked="true"/>
+        <param name="label_issues" type="boolean" label="Include label issues" checked="true"/>
+        <param name="outliers" type="boolean" label="Include outlier issues" checked="false"/>
+        <param name="near_duplicates" type="boolean" label="Include near-duplicate issues" checked="false"/>
+        <param name="non_iid" type="boolean" label="Include non-IID issues" checked="false"/>
     </inputs>
 
     <outputs>
@@ -35,23 +55,22 @@
         </data>
     </outputs>
 
-    <help><![CDATA[
-This tool uses Cleanlab to detect and optionally clean issues in labeled tabular data.
+    <help>
+    <![CDATA[
+This tool uses Cleanlab to detect and optionally clean data issues in supervised learning datasets. It supports:
+
+- Label error detection and correction
+- Detection of outliers, near-duplicates, and non-IID samples (for classification)
+- Cross-validated model predictions to assess label quality
+- Optional removal or replacement of problematic examples
 
 **Inputs:**
-- A CSV file with a column named 'target'
-- Specify whether the task is classification or regression
-- Choose whether to remove or replace problematic labels
+- CSV file with a "target" column
+- Task type (classification or regression)
+- Cleaning method (remove or replace)
+- Issue types to include in cleaning
 
-**Outputs:**
-- A report (`summary.txt`) describing detected issues
-- A cleaned dataset (if cleaning is requested)
-
-Make sure to mount your tool directory when running Planemo:
-
-    planemo serve --docker --volume $(pwd):/app
-
-This allows live-editing the Python script without rebuilding the Docker image.
-    ]]></help>
+If "Only report issues" is selected, only a summary will be produced without modifying the data.
+    ]]>
+    </help>
 </tool>
-
