@@ -1,12 +1,10 @@
 <tool id="cleanlab_issue_handler" name="Cleanlab Issue Handler" version="1.1.0">
     <description>Detect and optionally clean data issues using Cleanlab</description>
 
-    <!-- Use Docker for environment, but call local script -->
     <requirements>
-        <container type="docker">galaxy_cleanlab/issue_handler:first_docker</container>
+        <container type="docker">mojudy/galaxy_cleanlab:1.1.0</container>
     </requirements>
 
-    <!-- Call Python script from the tool directory -->
     <command detect_errors="exit_code">
     <![CDATA[
         python '${__tool_directory__}/cleanlab_issue_handler.py'
@@ -51,9 +49,52 @@
     <outputs>
         <data name="report_file" from_work_dir="summary.txt" format="txt" label="Issue Report"/>
         <data name="output_file" from_work_dir="cleaned_data.csv" format="csv" label="Cleaned Dataset">
-            <filter>summary_only == "false"</filter>
+            <filter>not summary_only</filter>
         </data>
     </outputs>
+
+    <tests>
+        <!-- Test 1: Only report label issues -->
+        <test expect_num_outputs="1">
+            <param name="input_file" value="breast_cancer.csv" />
+            <param name="task" value="classification" />
+            <param name="method" value="remove" />
+            <param name="summary_only" value="true" />
+            <param name="label_issues" value="true" />
+            <param name="outliers" value="false" />
+            <param name="near_duplicates" value="false" />
+            <param name="non_iid" value="false" />
+            <output name="report_file" file="expected_breast_cancer_summary.txt" compare="contains"/>
+        </test>
+
+        <!-- Test 2: Clean all issue types -->
+        <test expect_num_outputs="2">
+            <param name="input_file" value="breast_cancer.csv" />
+            <param name="task" value="classification" />
+            <param name="method" value="remove" />
+            <param name="summary_only" value="false" />
+            <param name="label_issues" value="true" />
+            <param name="outliers" value="true" />
+            <param name="near_duplicates" value="true" />
+            <param name="non_iid" value="true" />
+            <output name="report_file" file="expected_breast_cancer_summary.txt" compare="contains"/>
+            <output name="output_file" file="expected_cleaned_breast_cancer.csv" compare="contains"/>
+        </test>
+
+        <!-- Test 3: Clean only label issues -->
+        <test expect_num_outputs="2">
+            <param name="input_file" value="breast_cancer.csv" />
+            <param name="task" value="classification" />
+            <param name="method" value="remove" />
+            <param name="summary_only" value="false" />
+            <param name="label_issues" value="true" />
+            <param name="outliers" value="false" />
+            <param name="near_duplicates" value="false" />
+            <param name="non_iid" value="false" />
+            <output name="report_file" file="expected_breast_cancer_summary.txt" compare="contains"/>
+            <output name="output_file" file="expected_cleaned_label_issues.csv" compare="contains"/>
+        </test>
+    </tests>
 
     <help>
     <![CDATA[
@@ -71,6 +112,24 @@ This tool uses Cleanlab to detect and optionally clean data issues in supervised
 - Issue types to include in cleaning
 
 If "Only report issues" is selected, only a summary will be produced without modifying the data.
+
+**Reference:**
+Cleanlab is based on the research paper:
+*Confident learning: Estimating uncertainty in dataset labels* by Northcutt, Jiang, and Chuang (2021), published in JAIR.
     ]]>
     </help>
+
+    <citations>
+        <citation type="bibtex">
+@inproceedings{northcutt2021confident,
+  title={Confident learning: Estimating uncertainty in dataset labels},
+  author={Northcutt, Curtis G and Jiang, Lu and Chuang, Alex},
+  booktitle={Journal of Artificial Intelligence Research},
+  year={2021},
+  volume={70},
+  pages={1373--1411}
+}
+        </citation>
+    </citations>
 </tool>
+
