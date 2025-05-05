@@ -6,6 +6,7 @@ from sklearn.model_selection import cross_val_predict, StratifiedKFold, KFold
 from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import NearestNeighbors
 from xgboost import XGBClassifier
+from xgboost import XGBRegressor
 from cleanlab import Datalab
 from cleanlab.regression.rank import get_label_quality_scores
 
@@ -13,6 +14,42 @@ from cleanlab.regression.rank import get_label_quality_scores
 # Issue Handler
 # -------------------
 class IssueHandler:
+
+    """
+    IssueHandler is a class designed to identify and handle data quality issues in datasets for both classification 
+    and regression tasks. It leverages machine learning models and data analysis techniques to detect issues such as 
+    label errors, outliers, near duplicates, and non-IID data points.
+
+    Attributes:
+        dataset (pd.DataFrame): The input dataset containing features and a target column.
+        task (str): The type of task, either 'classification' or 'regression'.
+        n_splits (int): Number of splits for cross-validation. Default is 3.
+        quality_threshold (float): Threshold for determining label quality in regression tasks. 
+            Labels with quality scores below this threshold are flagged as issues.
+        knn_k (int): Number of nearest neighbors to consider when building the k-nearest neighbors graph.
+        issues (pd.DataFrame or None): DataFrame containing identified issues in the dataset.
+        features (list): List of feature column names in the dataset.
+        knn_graph (np.ndarray or None): k-nearest neighbors graph for the dataset.
+        pred_probs (np.ndarray or None): Predicted probabilities for classification tasks.
+        issue_summary (dict or None): Summary of identified issues.
+
+    Methods:
+        report_issues():
+            Identifies data quality issues in the dataset. For classification tasks, it uses a classifier to 
+            compute predicted probabilities and detect issues. For regression tasks, it computes label quality 
+            scores based on residuals. Returns a copy of the dataset and the identified issues.
+
+        clean_selected_issues(method='remove', label_issues=True, outliers=True, near_duplicates=True, non_iid=True):
+            Cleans the dataset by removing or replacing identified issues based on the specified method. 
+            Supports cleaning label issues, outliers, near duplicates, and non-IID data points. Returns the cleaned dataset.
+
+    Notes:
+        - The `quality_threshold` is used in regression tasks to determine whether a label is of low quality. 
+          Labels with scores below this threshold are flagged as issues.
+        - The `knn_k` parameter specifies the number of neighbors to consider when constructing the k-nearest neighbors graph, 
+          which is used for detecting certain types of issues like outliers and near duplicates.
+    """
+
     def __init__(self, dataset, task, n_splits=3, quality_threshold=0.2, knn_k=10):
         self.dataset = dataset
         self.task = task
@@ -56,6 +93,8 @@ class IssueHandler:
 
         elif self.task == 'regression':
             model = LinearRegression()
+            #sk-learn LR vs. XGBoost regressor???
+            #model = XGBRegressor(use_label_encoder=False, eval_metric='logloss', random_state=42)
             cv = KFold(n_splits=self.n_splits, shuffle=True, random_state=42)
             pred_y = cross_val_predict(model, X, y, cv=cv, method='predict')
             scores = get_label_quality_scores(y, pred_y, method='residual')
@@ -70,6 +109,8 @@ class IssueHandler:
         if self.issues is None:
             raise RuntimeError("Must run report_issues() before cleaning.")
 
+        #consider that if a data point is problematic(is considered as issue) 
+        #it means that row is issue, regardless of the columns.
         clean_mask = pd.Series([False] * len(self.dataset))
         for issue_type, use_flag in [
             ('is_label_issue', label_issues),
@@ -78,6 +119,7 @@ class IssueHandler:
             ('is_non_iid_issue', non_iid)
         ]:
             if use_flag and issue_type in self.issues.columns:
+                #remember issue has columns of "is_XXX_issue" and "score_XXX"
                 clean_mask |= self.issues[issue_type].fillna(False)
 
         if method == 'remove':
